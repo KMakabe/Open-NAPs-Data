@@ -1,0 +1,193 @@
+---
+title: "tmin_wc"
+author: "Kami Makabe"
+date: "4/09/2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE,message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### register the path to your data directory
+```{r}
+tminpath<-"C:/Workspace/RMardown_NAPS/Testrun1/Open-Naps_Test1/wc2-5/Temperature/wc2.1_2.5m_tmin_2010-2018"
+```
+
+
+### load tif files only
+
+```{r}
+library(raster)
+tmin_tif_only<-list.files(tminpath,full.names = TRUE, pattern = ".tif$")
+```
+
+
+## stack .tif files (108)
+
+```{r}
+library(raster)
+tminstack<-stack(tmin_tif_only)
+```
+
+### Get Malawi geom, source: natural earth.org or upload your own shapefile/geometry
+
+```{r, echo=FALSE}
+library(rnaturalearth)
+malawi<-rnaturalearth::ne_countries(country ='malawi', returnclass='sf')
+```
+
+
+### crop for area of interest
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE}
+library(raster)
+
+wctminmalawi<-crop(tminstack,extent(malawi)) ## here you can use your shapefile from previous step or get the bounding coordinates from any map service and enter them in the order (west, east, south, north)
+wctminmalawim<-mask(wctminmalawi,malawi)
+plot(wctminmalawim)  # remove the '#' sign to plot the individual stacked .tifs
+```
+
+
+### calculate monthly mean ppt for entire period of dataset
+
+```{r}
+tmin_mon_mean<-stackApply(wctminmalawim,1:12,mean)
+```
+
+
+### assign names to layers & plot Monlthy mean ppt rasters
+
+```{r}
+names(tmin_mon_mean)<-month.name
+plot(tmin_mon_mean)
+```
+
+
+## convert stack to data frame
+
+```{r}
+library(raster)
+library(reshape)
+library(dplyr)
+tmindf<-as.data.frame(tmin_mon_mean, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))
+
+```
+
+
+### plot geom raster
+
+```{r}
+library(ggplot2)
+library(raster)
+ggplot()+
+  geom_raster(data=tmindf, aes(x=x, y=y, fill=value))+
+  facet_wrap(~variable)+
+  geom_sf(fill='transparent', data = malawi)+
+  scale_fill_gradient(low = "yellow", high = "red")+
+  xlab('Longitude')+ylab('Latitude')+ ggtitle('Min Monthly Temperature')+
+  theme_bw()
+  
+```
+
+
+### select and plot single month
+
+```{r}
+library(raster)
+library(reshape)
+library(ggplot2)
+xmonthdf<-as.data.frame(tmin_mon_mean[[06]], xy=TRUE, stringsAsFactors=FALSE)%>%
+  melt(id.vars=c('x','y'))
+ggplot()+
+  geom_raster(data=xmonthdf, aes(x=x, y=y, fill=value))+
+  xlab('Longitude')+ylab('Latitude')+
+  geom_sf(fill='transparent', data = malawi)+
+  scale_fill_gradient(low = "yellow", high = "red")+
+  ggtitle('Min Monthly Temperature')+
+  theme_bw()
+  
+```
+
+### including other plots
+
+#### first prepare the raw raster data as data frame
+
+```{r}
+library(reshape)
+stdf_tmin<-as.data.frame(wctminmalawim,xy=TRUE, na.rm=TRUE, stringsAsFactors=FALSE)%>%
+  melt(id.vars=c('x','y'))
+```
+## then extract and format the date values into as.date
+
+```{r}
+library(stringr)
+Dt<-stdf_tmin$variable
+str_sub(Dt,-2)
+str_sub(Dt,-7,-4)
+paste(str_sub(Dt,-2),str_sub(Dt,-7,-4),'01', sep = "-")
+tmindfdate<-as.Date(paste(str_sub(Dt,-2),str_sub(Dt,-7,-4),'01', sep = "-"))
+
+```
+
+#### add proper date column to your dataframe
+
+```{r}
+library(lubridate)
+stdf_date<-stdf_tmin # created a copy of the df just as extra caution
+Date<-tmindfdate # a copy of the date values as extra caution too
+stdftmin_dt<-cbind(stdf_date,Date)
+```
+### add Month and year columns
+
+```{r}
+Year<-substr(Dt,2,5)
+Month<-substr(Dt,7,8)
+stdf_tmin<-cbind(stdftmin_dt, Year, Month)
+```
+
+### rename column 'value' to 'tmin'
+
+```{r}
+colnames(stdf_tmin)[colnames(stdf_tmin)=="value"]<-"tmin"
+```
+```{r}
+stdf_tmin<-stdf_tmin
+library(ggplot2)
+ggplot(stdf_tmin, aes(Date,tmin))+
+  geom_line(col='blue')+
+  xlab('Time')+ylab('tmin (C)')+
+  ggtitle('Max Monthly Temperature')+
+  theme_bw()
+
+```
+
+### monthly mean time series
+ 
+```{r}
+tminmonthdat<-stdf_tmin%>% group_by(Month)%>% 
+  summarise(across(contains("tmin"), ~mean(tmin, na.rm=TRUE)))
+tstminmon<- ts(tminmonthdat$tmin)
+plot(tstminmon)
+```
+
+### annual mean time series
+
+```{r}
+
+tminanndat<-stdf_tmin%>% group_by(Year)%>% 
+  summarise(across(contains("tmin"), ~mean(tmin, na.rm=TRUE)))
+tstminann<- ts(tminanndat$tmin, start = 2010, end=2018, frequency = 1)
+plot(tstminann)
+```
+
+### export df as csv (or other file type)
+#```{r}  ## remove the '#' in the beggining of line to run code
+csvpath <- "C:/Workspace/RMardown_NAPS/Testrun1/Open-Naps_Test1/wc2-5/Precipitation/wc2.1_2.5m_prec_2010-2018 - Copy"
+csvname <- "wc10_18_tmin.csv"
+csvfile <- paste(csvpath, csvname, sep="")
+write.table(na.omit(stdf_pr),csvfile, row.names=FALSE, sep=",")
+```
+
