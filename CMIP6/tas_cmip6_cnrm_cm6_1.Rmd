@@ -1,0 +1,140 @@
+---
+title: "tas_cmip6_cnrm_cm6_1"
+author: "Kami Makabe"
+date: "4/15/2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### load .nc files
+```{r}
+library(raster)
+library(ncdf4)
+tascnrm126<-stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/tas_Amon_CNRM-CM6-1_ssp126_r1i1p1f2_gr_201501-210012.nc")
+tascnrm245<-stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/tas_Amon_CNRM-CM6-1_ssp245_r1i1p1f2_gr_201501-210012.nc")
+tascnrm585<-stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/tas_Amon_CNRM-CM6-1_ssp585_r1i1p1f2_gr_201501-210012.nc")
+
+```
+
+### get geom boundary from natural earth
+```{r}
+library(rnaturalearth)
+Malawi<-ne_countries(country = 'malawi', returnclass = 'sf')
+```
+
+
+### subset
+```{r, warning=FALSE, message=FALSE}
+library(raster)
+tascnrm126Malawi<-crop(tascnrm126, Malawi)
+tascnrm126Malawim<-mask(tascnrm126Malawi, Malawi)
+
+tascnrm245Malawi<-crop(tascnrm245, Malawi)
+tascnrm245Malawim<-mask(tascnrm245Malawi, Malawi)
+
+tascnrm585Malawi<-crop(tascnrm585, Malawi)
+tascnrm585Malawim<-mask(tascnrm585Malawi, Malawi)
+
+```
+
+### convert to data frame
+
+```{r}
+library(raster)
+library(reshape)
+library(base)
+library(dplyr)
+library(tidyr)
+dftascnrm126<-as.data.frame(tascnrm126Malawim, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))%>% na.omit(dftascnrm126)
+
+dftascnrm245<-as.data.frame(tascnrm245Malawim, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))%>% na.omit(dftascnrm245)
+
+dftascnrm585<-as.data.frame(tascnrm585Malawim, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))%>%
+  na.omit(dftascnrm585)
+
+```
+
+
+### add column 'Scenario' to dataframes
+```{r}
+Scenario<-'ssp126'
+tascnrm1<-cbind(dftascnrm126,Scenario)
+Scenario<-'ssp245'
+tascnrm2<-cbind(dftascnrm245,Scenario)
+Scenario<-'ssp585'
+tascnrm5<-cbind(dftascnrm585,Scenario)
+tascnrmcomb<-rbind(tascnrm1,tascnrm2,tascnrm5)
+```
+
+## extract and format the date values into as.date
+
+```{r, include=FALSE}
+library(stringr)
+Dt<-tascnrmcomb$variable
+str_sub(Dt,-2)
+str_sub(Dt,-5,-4)
+str_sub(Dt,-10,-7)
+paste(str_sub(Dt,-10,-7),str_sub(Dt,-5,-4),str_sub(Dt,-2), sep = "-")
+Date<-as.Date(paste(str_sub(Dt,-10,-7),str_sub(Dt,-5,-4),str_sub(Dt,-2), sep = "-"))
+
+```
+
+#### add proper date column to your dataframe
+
+```{r}
+library(lubridate)
+tascnrmcombdt<-cbind(tascnrmcomb,Date)
+```
+### add Month and year columns
+
+```{r}
+Year<-substr(Dt,2,5)
+Month<-substr(Dt,7,8)
+Day<-substr(Dt,10,11)
+tascnrmdf<-cbind(tascnrmcombdt, Year, Month,Day)
+```
+
+### rename column 'value' to 'tas'
+
+```{r}
+colnames(tascnrmdf)[colnames(tascnrmdf)=="value"]<-"tas"
+```
+
+### Plot monthly trend
+```{r}
+
+library(ggplot2)
+ggplot(tascnrmdf, aes(Date,tas))+
+  geom_line(col='black')+
+  facet_grid(Scenario~.,scales = 'free_x')+
+  #scale_alpha_manual(breaks = 50)+
+  ggtitle('Monthly Temperature Trend')+
+  theme_bw()
+```
+
+### annual mean time series
+
+```{r}
+library(dplyr)
+tascnrmanndat<-tascnrmdf%>% group_by(Scenario, Year)%>% 
+  summarise(across(contains("tas"), ~mean(tas, na.rm=TRUE)))
+```
+  
+#plot annual trend
+
+```{r}
+library(ggeasy)
+qplot(Year, tas, data = tascnrmanndat, geom = "line", group = Scenario) +
+     facet_grid(Scenario ~ ., scale = "free_x") +
+     scale_x_discrete() +
+    ggtitle('Annual Temperature Trend')+
+     easy_rotate_x_labels(angle = 90, side = "right")
+```

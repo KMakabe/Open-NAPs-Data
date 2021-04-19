@@ -1,0 +1,140 @@
+---
+title: "pr_cmip6_cnrm_cm6_1"
+author: "Kami Makabe"
+date: "4/15/2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### load .nc files
+```{r}
+library(raster)
+library(ncdf4)
+prcnrm126<-stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/pr_Amon_CNRM-CM6-1_ssp126_r1i1p1f2_gr_201501-210012.nc")
+prcnrm245<-stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/pr_Amon_CNRM-CM6-1_ssp245_r1i1p1f2_gr_201501-210012.nc")
+prcnrm585<-stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/pr_Amon_CNRM-CM6-1_ssp585_r1i1p1f2_gr_201501-210012.nc")
+
+```
+
+### get geom boundary from natural earth
+```{r}
+library(rnaturalearth)
+Malawi<-ne_countries(country = 'malawi', returnclass = 'sf')
+```
+
+
+### subset
+```{r, message=FALSE,warning=FALSE}
+library(raster)
+prcnrm126Malawi<-crop(prcnrm126, Malawi)
+prcnrm126Malawim<-mask(prcnrm126Malawi, Malawi)
+
+prcnrm245Malawi<-crop(prcnrm245, Malawi)
+prcnrm245Malawim<-mask(prcnrm245Malawi, Malawi)
+
+prcnrm585Malawi<-crop(prcnrm585, Malawi)
+prcnrm585Malawim<-mask(prcnrm585Malawi, Malawi)
+
+```
+
+### convert to data frame
+
+```{r}
+library(raster)
+library(reshape)
+library(base)
+library(dplyr)
+library(tidyr)
+dfprcnrm126<-as.data.frame(prcnrm126Malawim, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))%>% na.omit(dfprcnrm126)
+
+dfprcnrm245<-as.data.frame(prcnrm245Malawim, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))%>% na.omit(dfprcnrm245)
+
+dfprcnrm585<-as.data.frame(prcnrm585Malawim, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))%>%
+  na.omit(dfprcnrm585)
+
+```
+
+
+### add column 'Scenario' to dataframes
+```{r}
+Scenario<-'ssp126'
+prcnrm1<-cbind(dfprcnrm126,Scenario)
+Scenario<-'ssp245'
+prcnrm2<-cbind(dfprcnrm245,Scenario)
+Scenario<-'ssp585'
+prcnrm5<-cbind(dfprcnrm585,Scenario)
+prcnrmcomb<-rbind(prcnrm1,prcnrm2,prcnrm5)
+```
+
+## extract and format the date values into as.date
+
+```{r, include=FALSE}
+library(stringr)
+Dt<-prcnrmcomb$variable
+str_sub(Dt,-2)
+str_sub(Dt,-5,-4)
+str_sub(Dt,-10,-7)
+paste(str_sub(Dt,-10,-7),str_sub(Dt,-5,-4),str_sub(Dt,-2), sep = "-")
+Date<-as.Date(paste(str_sub(Dt,-10,-7),str_sub(Dt,-5,-4),str_sub(Dt,-2), sep = "-"))
+
+```
+
+#### add proper date column to your dataframe
+
+```{r}
+library(lubridate)
+prcnrmcombdt<-cbind(prcnrmcomb,Date)
+```
+### add Month and year columns
+
+```{r}
+Year<-substr(Dt,2,5)
+Month<-substr(Dt,7,8)
+Day<-substr(Dt,10,11)
+prcnrmdf<-cbind(prcnrmcombdt, Year, Month,Day)
+```
+
+### rename column 'value' to 'pr'
+
+```{r}
+colnames(prcnrmdf)[colnames(prcnrmdf)=="value"]<-"pr"
+```
+
+### Plot data as line graph
+```{r}
+
+library(ggplot2)
+ggplot(prcnrmdf, aes(Date,pr))+
+  geom_line(col='black')+
+  facet_grid(Scenario~.,scales = 'free_x')+
+  #scale_alpha_manual(breaks = 50)+
+  ggtitle('Monthly Precipitation')+
+  theme_bw()
+```
+
+### annual mean time series
+
+```{r}
+library(dplyr)
+prcnrmanndat<-prcnrmdf%>% group_by(Scenario, Year)%>% 
+  summarise(across(contains("pr"), ~mean(pr, na.rm=TRUE)))
+```
+  
+#plot annual mean trend
+
+```{r}
+library(ggeasy)
+qplot(Year, pr, data = prcnrmanndat, geom = "line", group = Scenario) +
+     facet_grid(Scenario ~ ., scale = "free_x") +
+     scale_x_discrete() +
+  ggtitle('Annual Precipitation Trend')+
+     easy_rotate_x_labels(angle = 90, side = "right")
+```
