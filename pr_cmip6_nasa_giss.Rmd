@@ -1,0 +1,160 @@
+---
+title: "pr_cmip6_nasa_giss"
+author: "Kami Makabe"
+date: "4/15/2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+### load .nc file
+```{r}
+library(raster)
+library(ncdf4)
+ssp126_1<-stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/pr_Amon_GISS-E2-1-G_ssp126_r1i1p1f2_gn_201501-205012.nc")
+ssp126_2<- stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/pr_Amon_GISS-E2-1-G_ssp126_r1i1p1f2_gn_205101-210012.nc")
+ssp245<-stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/pr_Amon_GISS-E2-1-G_ssp245_r1i1p1f2_gn_201501-205012.nc")
+ssp245_2<- stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/pr_Amon_GISS-E2-1-G_ssp245_r1i1p1f2_gn_205101-210012.nc")
+ssp585_1<-stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/pr_Amon_GISS-E2-1-G_ssp585_r1i1p1f2_gn_201501-205012.nc")
+ssp585_2<- stack("C:/Workspace/RMardown_NAPS/Open-NAPs-Data/CMIP6/pr_Amon_GISS-E2-1-G_ssp585_r1i1p1f2_gn_205101-210012.nc")
+
+```
+
+### get geom boundary from natural earth
+```{r}
+library(rnaturalearth)
+Malawi<-ne_countries(country = 'malawi', returnclass = 'sf')
+```
+
+
+### subset
+```{r}
+library(raster)
+ssp126Malawi<-crop(ssp126_1, Malawi)
+ssp126Malawim<-mask(ssp126Malawi, Malawi)
+ssp126Malawi2<-crop(ssp126_2, Malawi)
+ssp126Malawim2<-mask(ssp126Malawi2, Malawi)
+
+ssp245Malawi<-crop(ssp245, Malawi)
+ssp245Malawim<-mask(ssp245Malawi, Malawi)
+ssp245Malawi2<-crop(ssp245_2, Malawi)
+ssp245Malawim2<-mask(ssp245Malawi2, Malawi)
+
+ssp585Malawi<-crop(ssp585_1, Malawi)
+ssp585Malawim<-mask(ssp585Malawi, Malawi)
+ssp585Malawi2<-crop(ssp585_2, Malawi)
+ssp585Malawim2<-mask(ssp585Malawi2, Malawi)
+```
+
+### convert to data frame
+
+```{r}
+library(raster)
+library(reshape)
+library(base)
+library(dplyr)
+library(tidyr)
+dfssp126<-as.data.frame(ssp126Malawim, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))
+df2_ssp126<-as.data.frame(ssp126Malawim2, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))
+
+dfssp245<-as.data.frame(ssp245Malawim, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))
+df2_ssp245<-as.data.frame(ssp245Malawim2, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))
+
+dfssp585<-as.data.frame(ssp585Malawim, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))
+df2_ssp585<-as.data.frame(ssp585Malawim2, xy=TRUE)%>%
+  melt(id.vars=c('x','y'))
+```
+
+### combine dataframes for each scenario type and remove null/missing values
+```{r}
+df_ssp126comb<-rbind(dfssp126,df2_ssp126)
+df_ssp126comb<-na.omit(df_ssp126comb)
+
+df_ssp245comb<-rbind(dfssp245,df2_ssp245)
+df_ssp245comb<-na.omit(df_ssp245comb)
+
+df_ssp585comb<-rbind(dfssp585,df2_ssp585)
+df_ssp585comb<-na.omit(df_ssp585comb)
+```
+
+### add column 'Scenario' to dataframes
+```{r}
+Scenario<-'ssp126'
+xs1<-cbind(df_ssp126comb,Scenario)
+Scenario<-'ssp245'
+xs2<-cbind(df_ssp245comb,Scenario)
+Scenario<-'ssp585'
+xs5<-cbind(df_ssp585comb,Scenario)
+xscomb<-rbind(xs1,xs2,xs5)
+```
+
+## extract and format the date values into as.date
+
+```{r, include=FALSE}
+library(stringr)
+Dt<-xscomb$variable
+str_sub(Dt,-2)
+str_sub(Dt,-5,-4)
+str_sub(Dt,-10,-7)
+paste(str_sub(Dt,-10,-7),str_sub(Dt,-5,-4),str_sub(Dt,-2), sep = "-")
+Date<-as.Date(paste(str_sub(Dt,-10,-7),str_sub(Dt,-5,-4),str_sub(Dt,-2), sep = "-"))
+
+```
+
+#### add proper date column to your dataframe
+
+```{r}
+library(lubridate)
+xscombdt<-cbind(xscomb,Date)
+```
+### add Month and year columns
+
+```{r, include=FALSE}
+Year<-substr(Dt,2,5)
+Month<-substr(Dt,7,8)
+Day<-substr(Dt,10,11)
+prdf_nasa<-cbind(xscombdt, Year, Month,Day)
+```
+
+### rename column 'value' to 'pr'
+
+```{r}
+colnames(prdf_nasa)[colnames(prdf_nasa)=="value"]<-"pr"
+```
+
+### Plot monthly trend
+```{r}
+
+library(ggplot2)
+ggplot(prdf_nasa, aes(Date,pr))+
+  geom_line(col='black')+
+  facet_grid(Scenario~.,scales = 'free_x')+
+  ggtitle('Monthly Precipitation')+
+  theme_bw()
+```
+
+### annual mean time series
+
+```{r}
+library(dplyr)
+pranndat<-prdf_nasa%>% group_by(Scenario, Year)%>% 
+  summarise(across(contains("pr"), ~mean(pr, na.rm=TRUE)))
+```
+  
+#plot Annual pr 
+```{r}
+library(ggeasy)
+qplot(Year, pr, data = pranndat, geom = "line", group = Scenario) +
+     facet_grid(Scenario ~ ., scale = "free_x") +
+     scale_x_discrete() +
+  ggtitle('Annual Precipitation Trend')+
+     easy_rotate_x_labels(angle = 90, side = "right")
+```
